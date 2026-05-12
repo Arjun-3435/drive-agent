@@ -1,6 +1,7 @@
 from langchain_groq import ChatGroq
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import trim_messages
 
 from backend.config import settings
 from backend.prompts import SYSTEM_PROMPT
@@ -12,7 +13,7 @@ llm = ChatGroq(
     model="llama-3.3-70b-versatile",
     api_key=settings.groq_api_key,
     temperature=0.1,          # low temp → consistent, accurate tool calls
-    max_tokens=2048,
+    max_tokens=1024,
 )
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
@@ -27,6 +28,15 @@ agent = create_react_agent(
     tools=tools,
     checkpointer=memory,
     state_modifier=SYSTEM_PROMPT,
+    # Trim messages before each LLM call
+    messages_modifier=trim_messages(
+        max_tokens=3000,
+        strategy="last",
+        token_counter=len,       # rough count by message count
+        include_system=True,
+        allow_partial=False,
+        start_on="human",
+    ),
 )
 
 

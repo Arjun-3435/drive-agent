@@ -1,5 +1,5 @@
 from langchain_groq import ChatGroq
-from langchain_core.messages import trim_messages, SystemMessage
+from langchain_core.messages import trim_messages, SystemMessage, AIMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -17,9 +17,8 @@ llm = ChatGroq(
 tools = [search_drive_files, list_all_files, get_file_details]
 memory = MemorySaver()
 
-# Trimmer — keeps last 10 messages (5 turns) to cap context size
 trimmer = trim_messages(
-    max_tokens=10,          # 10 messages max (token_counter=len counts messages, not tokens)
+    max_tokens=10,
     strategy="last",
     token_counter=len,
     include_system=True,
@@ -28,15 +27,25 @@ trimmer = trim_messages(
 )
 
 def state_modifier(state):
-    """Prepend system prompt + trim history — combined into one modifier."""
     messages = trimmer.invoke(state["messages"])
+
+    # Remove orphaned ToolMessages at the start
+    # (tool result with no preceding AI tool_call → Groq rejects this)
+    while messages and isinstance(messages[0], ToolMessage):
+        messages = messages[1:]
+
+    # Remove trailing AIMessage that has tool_calls but no following ToolMessage
+    # (AI called a tool but result was trimmed away → also breaks Groq)
+    while messages and isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
+        messages = messages[:-1]
+
     return [SystemMessage(content=SYSTEM_PROMPT)] + messages
 
 agent = create_react_agent(
     model=llm,
     tools=tools,
     checkpointer=memory,
-    state_modifier=state_modifier,   # single param only
+    state_modifier=state_modifier,
 )
 
 def get_agent_config(session_id: str) -> dict:
